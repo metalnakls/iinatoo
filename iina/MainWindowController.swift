@@ -930,6 +930,15 @@ class MainWindowController: PlayerWindowController {
     if success && keyBinding.action.first! == MPVCommand.screenshot.rawValue {
       player.sendOSD(.screenshot)
     }
+
+    if !keyBinding.isIINACommand {
+      switch keyBinding.action.first! {
+      case MPVCommand.showProgress.rawValue:
+        player.sendOSD(.showTime(player.info.progress))
+      default: ()
+      }
+    }
+
     return success
   }
 
@@ -2123,10 +2132,21 @@ class MainWindowController: PlayerWindowController {
   // MARK: - UI: OSD
 
   private func setOSDViews(fromMessage message: OSDMessage) {
+    let duration = player.info.videoDuration
+    let position = player.info.videoPosition
+    let osdData: [String: String] = [
+      "duration": duration?.stringRepresentation ?? Constants.String.videoTimePlaceholder,
+      "preciseDuration": duration?.stringRepresentationWithPrecision(3) ?? Constants.String.videoTimePlaceholder,
+      "position": position?.stringRepresentation ?? Constants.String.videoTimePlaceholder,
+      "precisePosition": position?.stringRepresentationWithPrecision(3) ?? Constants.String.videoTimePlaceholder,
+      "currChapter": (player.mpv.getInt(MPVProperty.chapter) + 1).description,
+      "chapterCount": player.info.chapters.count.description
+    ]
+
     osdLastMessage = message
     
     let (osdString, osdType) = message.message()
-    osdLabel.stringValue = osdString
+    osdLabel.stringValue = try! (try! Template(string: osdString)).render(osdData)
 
     // Most OSD messages are displayed based on the configured language direction.
     osdAccessoryProgress.userInterfaceLayoutDirection = osdStackView.userInterfaceLayoutDirection
@@ -2151,13 +2171,6 @@ class MainWindowController: PlayerWindowController {
       fallthrough
     case .withText(let text):
       // data for mustache rendering
-      let osdData: [String: String] = [
-        "duration": player.info.videoDuration?.stringRepresentation ?? Constants.String.videoTimePlaceholder,
-        "position": player.info.videoPosition?.stringRepresentation ?? Constants.String.videoTimePlaceholder,
-        "currChapter": (player.mpv.getInt(MPVProperty.chapter) + 1).description,
-        "chapterCount": player.info.chapters.count.description
-      ]
-
       osdStackView.setVisibilityPriority(.mustHold, for: osdAccessoryText)
       osdStackView.setVisibilityPriority(.notVisible, for: osdAccessoryProgress)
       osdAccessoryText.stringValue = try! (try! Template(string: text)).render(osdData)
@@ -2927,7 +2940,7 @@ class MainWindowController: PlayerWindowController {
     if osdAnimationState == .shown, let osdLastMessage = self.osdLastMessage {
       let message: OSDMessage
       switch osdLastMessage {
-      case .pause, .resume:
+      case .pause, .resume, .showTime(_):
         message = osdLastMessage
       case .seek(_, _):
         let osdText = (player.info.videoPosition?.stringRepresentation ?? Constants.String.videoTimePlaceholder) + " / " +
