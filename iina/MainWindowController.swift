@@ -79,6 +79,9 @@ class MainWindowController: PlayerWindowController {
 
   lazy private var _videoView: VideoView = VideoView(frame: window!.contentView!.bounds, player: player)
 
+  // MARK: Lyrics Overlay
+  private lazy var lyricsOverlayView = LyricsOverlayView()
+  
   /** The quick setting sidebar (video, audio, subtitles). */
   lazy var quickSettingView: QuickSettingViewController = {
     let quickSettingView = QuickSettingViewController()
@@ -583,6 +586,24 @@ class MainWindowController: PlayerWindowController {
     cv.autoresizesSubviews = false
     addVideoViewToWindow()
 
+    // MARK: - Lyrics Overlay
+
+    lyricsOverlayView.translatesAutoresizingMaskIntoConstraints = false
+
+    // add lyrics overlay view
+    videoView.addSubview(lyricsOverlayView)
+
+    NSLayoutConstraint.activate([
+        lyricsOverlayView.leadingAnchor.constraint(equalTo: videoView.leadingAnchor),
+        lyricsOverlayView.trailingAnchor.constraint(equalTo: videoView.trailingAnchor),
+        lyricsOverlayView.topAnchor.constraint(equalTo: videoView.topAnchor),
+        lyricsOverlayView.bottomAnchor.constraint(equalTo: videoView.bottomAnchor)
+    ])
+
+    // Set initial visibility state
+    lyricsOverlayView.isHidden = !player.info.isLyricsVisible
+    lyricsOverlayView.alphaValue = player.info.isLyricsVisible ? 1.0 : 0.0
+
     // gesture recognizer
     cv.addGestureRecognizer(magnificationGestureRecognizer)
 
@@ -678,6 +699,37 @@ class MainWindowController: PlayerWindowController {
       self.player.abLoopB = seconds
       self.player.sendOSD(.abLoopUpdate(.bSet, VideoTime(seconds).stringRepresentation))
     }
+    
+    // MARK: - Lyrics Overlay observer
+
+    addObserver(to: .default, forName: .iinaLyricsOverlayUpdated, object: player.lyricsController) { [weak self] note in
+        guard let self = self, let state = note.userInfo?["state"] as? LyricsOverlayState else { return }
+
+        // Update the view - it will handle visibility internally
+        self.lyricsOverlayView.update(state: state)
+        
+        // Update visibility based on toggle state
+        let shouldBeVisible = self.player.info.isLyricsVisible && state.current != nil
+        self.lyricsOverlayView.isHidden = !shouldBeVisible
+    }
+    
+    // Also observe visibility changes to update the view immediately
+    addObserver( to: .default, forName: .iinaLyricsVisibilityChanged, object: player) { [weak self] _ in
+        guard let self = self else { return }
+        let shouldBeVisible = self.player.info.isLyricsVisible
+        self.lyricsOverlayView.isHidden = !shouldBeVisible
+        
+        // If hiding, clear the view
+        if !shouldBeVisible {
+            let emptyState = LyricsOverlayState(previous: nil, current: nil, next: nil, allLines: [], currentIndex: -1)
+            self.lyricsOverlayView.update(state: emptyState, animated: true)
+        }
+    }
+
+    player.lyricsController.visibleLineCountProvider = { [weak self] in
+      self?.lyricsOverlayView.visibleLineCount() ?? 7
+    }
+
 
     // Observers for toolbar buttons
     let notifications: [Notification.Name] = [.iinaPIPStatusChanged, .iinaFullscreenChanged, .iinaSidebarStatusChanged]
@@ -1337,6 +1389,9 @@ class MainWindowController: PlayerWindowController {
     playSlider.trackingAreas.forEach(playSlider.removeTrackingArea)
     UserDefaults.standard.set(NSStringFromRect(window!.frame), forKey: "MainWindowLastPosition")
     
+    // MARK: - Lyrics Overlay cleanup
+    lyricsOverlayView.removeFromSuperview()
+    
     player.events.emit(.windowWillClose)
   }
 
@@ -1890,6 +1945,7 @@ class MainWindowController: PlayerWindowController {
     }
 
     player.events.emit(.windowResized, data: window.frame)
+    player.lyricsController.refreshCurrentOverlay()
   }
 
   func windowWillStartLiveResize(_ notification: Notification) {
@@ -1903,6 +1959,7 @@ class MainWindowController: PlayerWindowController {
     guard player.info.state.active else { return }
     videoView.videoLayer.inLiveResize = false
     updateWindowParametersForMPV()
+    player.lyricsController.refreshCurrentOverlay()
   }
 
   func windowDidChangeBackingProperties(_ notification: Notification) {
@@ -2918,7 +2975,8 @@ class MainWindowController: PlayerWindowController {
   func isUITimerNeeded() -> Bool {
     let isShowingFadeableViews = animationState == .shown || animationState == .willShow
     let isShowingOSD = osdAnimationState == .shown || osdAnimationState == .willShow
-    return isShowingFadeableViews || isShowingOSD
+    let isShowingLyrics = player.info.isLyricsVisible
+    return isShowingFadeableViews || isShowingOSD || isShowingLyrics
   }
 
   override func updatePlayTime(withDuration duration: Bool, andProgressBar: Bool) {
@@ -3275,6 +3333,8 @@ class MainWindowController: PlayerWindowController {
       player.screenshot()
     case .plugins:
       showPluginSidebar(tab: nil)
+    case .lyrics:
+      player.toggleLyricsVisibility()
     }
   }
 
@@ -3380,6 +3440,11 @@ extension MainWindowController: PIPViewControllerDelegate {
 
     pip.presentAsPicture(inPicture: pipVideo)
     pipOverlayView.isHidden = false
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.videoView.layoutSubtreeIfNeeded()
+      self.player.lyricsController.refreshCurrentOverlay()
+    }
 
     if let window = self.window {
       let windowShouldDoNothing = window.styleMask.contains(.fullScreen) || window.isMiniaturized
@@ -3424,6 +3489,11 @@ extension MainWindowController: PIPViewControllerDelegate {
     pipStatus = .notInPIP
 
     addVideoViewToWindow()
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.videoView.layoutSubtreeIfNeeded()
+      self.player.lyricsController.refreshCurrentOverlay()
+    }
 
     // Similarly, we need to run a redraw here as well. We check to make sure we are paused, because
     // this causes a janky animation in either case but as it's not necessary while the video is

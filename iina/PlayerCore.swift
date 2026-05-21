@@ -216,6 +216,10 @@ class PlayerCore: NSObject {
   private var pluginMap: [String: JavascriptPluginInstance] = [:]
   var events = EventController()
 
+  // MARK: - Lyrics
+  lazy var lyricsController = LyricsController(player: self)
+
+
   lazy var ffmpegController: FFmpegController = {
     let controller = FFmpegController()
     controller.delegate = self
@@ -755,6 +759,7 @@ class PlayerCore: NSObject {
     let _ = miniPlayer.window
 
     miniPlayer.updateTitle()
+    miniPlayer.updateLyricsControls(clearOverlayWhenHidden: false)
     refreshSyncUITimer()
     let playlistView = mainWindow.playlistView.view
     let videoView = mainWindow.videoView
@@ -807,6 +812,7 @@ class PlayerCore: NSObject {
     if showMiniPlayer {
       notifyWindowVideoSizeChanged()
     }
+    lyricsController.refreshCurrentOverlay()
     mainWindow.forceDraw("entered music mode")
     events.emit(.musicModeChanged, data: true)
   }
@@ -855,6 +861,8 @@ class PlayerCore: NSObject {
       mainWindow.updateTitle()
       notifyWindowVideoSizeChanged()
     }
+ 
+    lyricsController.refreshCurrentOverlay()
 
     mainWindow.forceDraw("exited music mode")
     events.emit(.musicModeChanged, data: false)
@@ -1398,6 +1406,20 @@ class PlayerCore: NSObject {
   func toggleSecondSubVisibility(_ set: Bool? = nil) {
     let newState = set ?? !info.isSecondSubVisible
     mpv.setFlag(MPVOption.Subtitles.secondarySubVisibility, newState)
+  }
+
+  // MARK: - Lyrics
+  func toggleLyricsVisibility(_set: Bool? = nil) {
+    let newState = _set ?? !info.isLyricsVisible
+    guard info.isLyricsVisible != newState else { return }
+    info.isLyricsVisible = newState
+    postNotification(.iinaLyricsVisibilityChanged)
+  }
+
+  private func setLyricsAvailability(_ hasLyrics: Bool) {
+    guard info.hasLyrics != hasLyrics else { return }
+    info.hasLyrics = hasLyrics
+    postNotification(.iinaLyricsAvailabilityChanged)
   }
 
   func loadExternalSubFile(_ url: URL, delay: Bool = false) {
@@ -2095,6 +2117,27 @@ class PlayerCore: NSObject {
 
     info.state = .loaded
 
+    // MARK: - Lyrics
+    var didLoadLyrics = false
+    if let url = info.currentURL, url.isFileURL {
+      let lrcURL = url.deletingPathExtension().appendingPathExtension("lrc")
+
+      if FileManager.default.fileExists(atPath: lrcURL.path),
+         let contents = try? String(contentsOf: lrcURL) {
+        let lines = LRCParser.parse(contents)
+        if !lines.isEmpty {
+          lyricsController.loadLyrics(lines)
+          didLoadLyrics = true
+          log("Loaded lyrics: \(lines.count) lines")
+        }
+      }
+    }
+    if !didLoadLyrics {
+      lyricsController.clear()
+      log("No lyrics found for file")
+    }
+    setLyricsAvailability(didLoadLyrics)
+
     // Must force drawing to cover the case where this player was previously used to play a video
     // and is now playing an audio file without an album cover and without using music mode.
     // See issue #5403.
@@ -2727,6 +2770,11 @@ class PlayerCore: NSObject {
     case .time:
       let isNetworkStream = info.isNetworkResource
       syncPosition()
+
+      // MARK: - Lyrics Sync
+      if info.hasLyrics, info.isLyricsVisible, let time = info.videoPosition?.second {
+        lyricsController.syncTime(time)
+      }
       info.videoRemaining?.second = Preference.bool(for: .scaleRemainingTime) ?
         mpv.getDouble(MPVProperty.playtimeRemainingFull) :
         mpv.getDouble(MPVProperty.timeRemainingFull)

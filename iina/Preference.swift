@@ -823,6 +823,7 @@ struct Preference {
     case subTrack
     case screenshot
     case plugins
+    case lyrics
 
     var description: String {
       switch self {
@@ -834,6 +835,7 @@ struct Preference {
       case .subTrack: "subTrack"
       case .screenshot: "screenshot"
       case .plugins: "plugins"
+      case .lyrics: "lyrics"
       }
     }
 
@@ -853,6 +855,7 @@ struct Preference {
       case .subTrack: return makeSymbol(["captions.bubble.fill"], "sub-track")
       case .screenshot: return makeSymbol(["camera.shutter.button"], "screenshot")
       case .plugins: return makeSymbol(["puzzlepiece.extension"], "plugin")
+      case .lyrics: return makeSymbol(["quote.bubble.fill"], "tab_sub")
       }
     }
 
@@ -878,6 +881,7 @@ struct Preference {
       case .subTrack: key = "sub_track"
       case .screenshot: key = "screenshot"
       case .plugins: key = "plugins"
+      case .lyrics: key = "lyrics"
       }
       return NSLocalizedString("osc_toolbar.\(key)", comment: key)
     }
