@@ -118,6 +118,7 @@ class MainWindowController: PlayerWindowController {
   lazy var liveText = LiveTextController(mainWindow: self)
   lazy var interactiveMode = InteractiveModeController(mainWindow: self)
   var pipStatus = PIPStatus.notInPIP
+  private var shouldRestoreWindowAfterPIP = true
   var isVideoLoaded: Bool = false
 
   var shouldApplyInitialWindowSize = true
@@ -683,6 +684,13 @@ class MainWindowController: PlayerWindowController {
     [pipOverlayView].forEach {
       $0?.state = .active
     }
+    let pipBackgroundView = NSView()
+    pipBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+    pipBackgroundView.wantsLayer = true
+    pipBackgroundView.layer?.backgroundColor = NSColor.black.cgColor
+    pipOverlayView.addSubview(pipBackgroundView, positioned: .below, relativeTo: nil)
+    pipBackgroundView.padding(.all)
+    pipOverlayView.appearance = NSAppearance(named: .darkAqua)
     // hide other views
     osdView.isHidden = true
     oscSpeedLabelLeft.isHidden = true
@@ -3063,6 +3071,7 @@ extension MainWindowController: PIPViewControllerDelegate {
 
   func enterPIP() {
     guard pipStatus != .inPIP else { return }
+    shouldRestoreWindowAfterPIP = true
     pipStatus = .inPIP
     liveText.clearAnalysis()
     showUI()
@@ -3102,7 +3111,8 @@ extension MainWindowController: PIPViewControllerDelegate {
 
   func exitPIP() {
     guard pipStatus == .inPIP else { return }
-    prepareForPIPClosure(pip)
+    shouldRestoreWindowAfterPIP = true
+    prepareForPIPClosure(pip, restoringWindow: true)
     // Prod Swift to pick the dismiss(_ viewController: NSViewController)
     // overload over dismiss(_ sender: Any?). A change in the way implicitly
     // unwrapped optionals are handled in Swift means that the wrong method
@@ -3111,8 +3121,11 @@ extension MainWindowController: PIPViewControllerDelegate {
   }
 
   func doneExitingPIP() {
-    if isWindowHidden {
-      window?.makeKeyAndOrderFront(self)
+    if shouldRestoreWindowAfterPIP {
+      if isWindowHidden {
+        window?.makeKeyAndOrderFront(self)
+      }
+      isWindowHidden = false
     }
 
     pipStatus = .notInPIP
@@ -3129,13 +3142,13 @@ extension MainWindowController: PIPViewControllerDelegate {
     updateTimer()
 
     isWindowMiniaturizedDueToPip = false
-    isWindowHidden = false
+    shouldRestoreWindowAfterPIP = true
     liveText.requestAnalysis()
     player.events.emit(.pipChanged, data: false)
     NotificationCenter.default.post(name: .iinaPIPStatusChanged, object: self, userInfo: ["enable": false])
   }
 
-  func prepareForPIPClosure(_ pip: PIPViewController) {
+  func prepareForPIPClosure(_ pip: PIPViewController, restoringWindow: Bool) {
     guard pipStatus == .inPIP else { return }
     guard let window else { return }
     // This is called right before we're about to close the PIP
@@ -3146,18 +3159,23 @@ extension MainWindowController: PIPViewControllerDelegate {
     // to the window under everything else, including the overlay).
     pipOverlayView.isHidden = true
 
-    // Set frame to animate back to
-    let newVideoSize = videoView.frame.size.shrink(toSize: window.frame.size)
-    pip.replacementRect = newVideoSize.centeredRect(in: .init(origin: .zero, size: window.frame.size))
-    pip.replacementWindow = window
+    if restoringWindow {
+      // Set frame to animate back to
+      let newVideoSize = videoView.frame.size.shrink(toSize: window.frame.size)
+      pip.replacementRect = newVideoSize.centeredRect(in: .init(origin: .zero, size: window.frame.size))
+      pip.replacementWindow = window
 
-    // Bring the window to the front and deminiaturize it
-    NSApp.activate(ignoringOtherApps: true)
-    window.deminiaturize(pip)
+      // Bring the window to the front and deminiaturize it
+      NSApp.activate(ignoringOtherApps: true)
+      window.deminiaturize(pip)
+    } else {
+      pip.replacementWindow = nil
+      pip.replacementRect = .zero
+    }
   }
 
   func pipWillClose(_ pip: PIPViewController) {
-    prepareForPIPClosure(pip)
+    prepareForPIPClosure(pip, restoringWindow: shouldRestoreWindowAfterPIP)
   }
 
   func pipDidClose(_ pip: PIPViewController) {
@@ -3173,7 +3191,8 @@ extension MainWindowController: PIPViewControllerDelegate {
   }
 
   func pipActionStop(_ pip: PIPViewController) {
-    // Stopping PIP pauses playback
+    // The system close button should dismiss PiP without restoring IINA's window.
+    shouldRestoreWindowAfterPIP = false
     player.pause()
   }
 
