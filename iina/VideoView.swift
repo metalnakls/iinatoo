@@ -428,6 +428,7 @@ extension VideoView {
       player.postNotification(.iinaHDRChanged)
     }
     if edrEnabled != true { setICCProfile() }
+    player.mainWindow.updateOSCExtendedDynamicRange()
   }
 
   func requestEdrMode() -> Bool? {
