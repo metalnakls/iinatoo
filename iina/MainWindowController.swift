@@ -124,6 +124,7 @@ class MainWindowController: PlayerWindowController {
   var shouldApplyInitialWindowSize = true
   var isWindowHidden: Bool = false
   var isWindowMiniaturizedDueToPip = false
+  private var isMiniaturizingOrMiniaturized = false
 
   var isMouseInWindow: Bool = false
   /** flag to ignore abrupt momentum scrolls */
@@ -1912,7 +1913,7 @@ class MainWindowController: PlayerWindowController {
     }
 
     // update control bar position
-    if oscPosition == .floating {
+    if oscPosition == .floating && !isMiniaturizingOrMiniaturized {
       oscFloatingView.updatePosition()
     }
 
@@ -2022,6 +2023,7 @@ class MainWindowController: PlayerWindowController {
   }
 
   func windowWillMiniaturize(_ notification: Notification) {
+    isMiniaturizingOrMiniaturized = true
     if Preference.bool(for: .pauseWhenMinimized), player.info.state == .playing {
       isPausedDueToMiniaturization = true
       player.pause()
@@ -2036,6 +2038,11 @@ class MainWindowController: PlayerWindowController {
   }
 
   func windowDidDeminiaturize(_ notification: Notification) {
+    isMiniaturizingOrMiniaturized = false
+    window?.contentView?.layoutSubtreeIfNeeded()
+    if oscPosition == .floating {
+      oscFloatingView.updatePosition()
+    }
     if Preference.bool(for: .pauseWhenMinimized) && isPausedDueToMiniaturization {
       player.resume()
       isPausedDueToMiniaturization = false
