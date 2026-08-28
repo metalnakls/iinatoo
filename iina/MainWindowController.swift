@@ -2039,10 +2039,6 @@ class MainWindowController: PlayerWindowController {
 
   func windowDidDeminiaturize(_ notification: Notification) {
     isMiniaturizingOrMiniaturized = false
-    window?.contentView?.layoutSubtreeIfNeeded()
-    if oscPosition == .floating {
-      oscFloatingView.updatePosition()
-    }
     if Preference.bool(for: .pauseWhenMinimized) && isPausedDueToMiniaturization {
       player.resume()
       isPausedDueToMiniaturization = false
