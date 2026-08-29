@@ -307,11 +307,7 @@ class LogWindowController: NSWindowController, NSMenuDelegate, NSToolbarDelegate
 
   @objc private func clearSubsystemFilter(_ sender: NSMenuItem) {
     filteredSubsystems = []
-    if #available(macOS 14.0, *) {
-      subsystemMenu.selectedItems = []
-    } else {
-      subsystemMenu.items.forEach { $0.state = .off }
-    }
+    subsystemMenu.selectedItems = []
   }
 
   @objc private func subsystemChanged(_ sender: NSMenuItem) {
@@ -532,4 +528,3 @@ extension LogWindowController: NSTableViewDelegate {
     return indicatorIcon(withColor: level.color)
   }
 }
-
